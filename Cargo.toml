@@ -8,8 +8,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "3.2.16", features = ["cargo"] }
+clap = { version = "3.2.16", features = ["cargo", "derive"] }
 tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
 tracing-log = "0.1"
 anyhow = "1"
+itertools = "0.10.3"
