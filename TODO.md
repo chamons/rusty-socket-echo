@@ -1,2 +1,2 @@
-- Get echo to stop freaking out when connection killed
 - Handle ctrl+c with https://rust-cli.github.io/book/in-depth/signals.html
+- Create message format so we can create reply socket and kill it on quit
