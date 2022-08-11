@@ -33,5 +33,6 @@ pub fn run_tool(args: ToolArgs) -> Result<()> {
     } else {
         client::run_client(&args.socket_path)?;
     }
+    log::info!("Shutting down");
     Ok(())
 }

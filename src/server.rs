@@ -3,7 +3,6 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     os::unix::net::UnixListener,
-    time::Duration,
 };
 use tracing::log;
 
@@ -19,6 +18,8 @@ pub fn run_echo_server(path: &str) -> Result<()> {
 
     // Accept
     for stream in stream.incoming() {
+        log::info!("⚡️ - New Connection");
+
         let stream = stream?;
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
@@ -26,6 +27,7 @@ pub fn run_echo_server(path: &str) -> Result<()> {
             // Read
             let count = reader.read_line(&mut line)?;
             if count == 0 {
+                log::info!("🚪 - Connection Closed");
                 break;
             }
             print!("{line}");

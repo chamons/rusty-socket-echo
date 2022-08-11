@@ -8,6 +8,7 @@ use tracing::log;
 #[tracing::instrument]
 pub fn run_client(path: &str) -> Result<()> {
     log::info!("🚀 - Starting echo client");
+
     let stream = UnixStream::connect(path)?;
     let mut writer = BufWriter::new(stream);
     let stdin = std::io::stdin();
@@ -15,6 +16,7 @@ pub fn run_client(path: &str) -> Result<()> {
     loop {
         stdin.read_line(&mut line)?;
         if line.len() == 0 {
+            log::info!("🚪 - Session Complete");
             break;
         }
         writer.write(line.as_bytes())?;
