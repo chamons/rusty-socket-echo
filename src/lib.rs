@@ -1,10 +1,10 @@
 use std::env;
 
-use clap::ArgMatches;
-use clap::{Arg, Parser};
+use clap::Parser;
 use itertools::Itertools;
 use tracing::log;
 
+pub mod client;
 pub mod server;
 pub mod utils;
 
@@ -14,17 +14,22 @@ pub struct ToolArgs {
     /// Print additional information (pass argument one to four times for increasing detail)
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
+
+    /// Run tool as an echo server
+    #[clap(long, action)]
+    pub server: bool,
+
+    /// Path of the socket file
+    #[clap(long, default_value_t = String::from("loopback-socket"))]
+    pub socket_path: String,
 }
 
 #[tracing::instrument(skip(args))]
 pub fn run_tool(args: ToolArgs) {
     log::info!("Starting tool with args: '{}'", env::args().skip(1).format(" "));
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_start() {
-        assert_eq!(1, 1);
+    if args.server {
+        server::run_echo_server(&args.socket_path);
+    } else {
+        client::run_client(&args.socket_path);
     }
 }
