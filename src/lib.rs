@@ -1,5 +1,6 @@
 use std::env;
 
+use anyhow::Result;
 use clap::Parser;
 use itertools::Itertools;
 use tracing::log;
@@ -25,11 +26,12 @@ pub struct ToolArgs {
 }
 
 #[tracing::instrument(skip(args))]
-pub fn run_tool(args: ToolArgs) {
+pub fn run_tool(args: ToolArgs) -> Result<()> {
     log::info!("Starting tool with args: '{}'", env::args().skip(1).format(" "));
     if args.server {
-        server::run_echo_server(&args.socket_path);
+        server::run_echo_server(&args.socket_path)?;
     } else {
-        client::run_client(&args.socket_path);
+        client::run_client(&args.socket_path)?;
     }
+    Ok(())
 }

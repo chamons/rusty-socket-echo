@@ -1,0 +1,2 @@
+- Get echo to echo
+- Handle ctrl+c with https://rust-cli.github.io/book/in-depth/signals.html

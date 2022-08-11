@@ -9,7 +9,7 @@ fn main() -> anyhow::Result<()> {
     init_telemetry_from_verbose(args.verbose)?;
 
     // Parse arguments and start your tool here
-    run_tool(args);
+    run_tool(args)?;
     Ok(())
 }
 
