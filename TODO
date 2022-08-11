@@ -1,2 +1,2 @@
-- Get echo to echo
+- Get echo to stop freaking out when connection killed
 - Handle ctrl+c with https://rust-cli.github.io/book/in-depth/signals.html

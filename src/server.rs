@@ -19,7 +19,7 @@ pub fn run_echo_server(path: &str) -> Result<()> {
         let mut line = String::new();
         loop {
             reader.read_line(&mut line)?;
-            println!("{line}");
+            print!("{line}");
             line.clear();
         }
     }
