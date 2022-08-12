@@ -5,12 +5,10 @@ use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
-use std::{
-    fs,
-    io::{BufRead, BufReader},
-    os::unix::net::UnixListener,
-};
+use std::{fs, io::BufReader, os::unix::net::UnixListener};
 use tracing::log;
+
+use crate::message::EchoCommand;
 
 #[tracing::instrument]
 pub fn run_echo_server(path: &str) -> Result<()> {
@@ -70,7 +68,6 @@ fn handle_client(stream: UnixStream, running: Arc<AtomicBool>) {
     stream.set_nonblocking(false).unwrap();
 
     let mut reader = BufReader::new(stream);
-    let mut line = String::new();
     loop {
         if !running.load(Ordering::SeqCst) {
             log::info!("💤 - Shutting Down Thread Safely");
@@ -78,13 +75,16 @@ fn handle_client(stream: UnixStream, running: Arc<AtomicBool>) {
         }
 
         // Read
-        let count = reader.read_line(&mut line).unwrap();
-        if count == 0 {
-            // Close
-            log::info!("🚪 - Connection Closed");
-            break;
+        match EchoCommand::read(&mut reader).unwrap() {
+            EchoCommand::Hello => {}
+            EchoCommand::Goodbye => {
+                // Close
+                log::info!("🚪 - Connection Closed");
+                break;
+            }
+            EchoCommand::Message(msg) => {
+                print!("{msg}");
+            }
         }
-        print!("{line}");
-        line.clear();
     }
 }

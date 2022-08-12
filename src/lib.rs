@@ -6,6 +6,7 @@ use itertools::Itertools;
 use tracing::log;
 
 pub mod client;
+pub mod message;
 pub mod server;
 pub mod utils;
 
