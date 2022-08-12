@@ -43,8 +43,7 @@ impl Client {
     }
 
     pub fn run(&mut self) -> Result<()> {
-        let ctrlc_server_stream = self.server_stream.clone();
-        ctrlc::set_handler(move || Client::shutdown(&ctrlc_server_stream))?;
+        self.setup_ctrlc_handler()?;
 
         self.send(EchoCommand::Hello(self.response_socket_path.clone()))?;
 
@@ -57,15 +56,23 @@ impl Client {
         Ok(())
     }
 
-    pub fn send(&mut self, command: EchoCommand) -> Result<()> {
+    fn setup_ctrlc_handler(&self) -> Result<()> {
+        let server_stream = self.server_stream.clone();
+        ctrlc::set_handler(move || Client::shutdown(&server_stream))?;
+        Ok(())
+    }
+
+    fn send(&mut self, command: EchoCommand) -> Result<()> {
         Client::send_to_stream(command, &self.server_stream)
     }
 
-    pub fn send_to_stream(command: EchoCommand, stream: &Arc<Mutex<UnixStream>>) -> Result<()> {
+    fn send_to_stream(command: EchoCommand, stream: &Arc<Mutex<UnixStream>>) -> Result<()> {
         command.send(&mut *stream.lock().unwrap())
     }
 
-    pub fn shutdown(stream: &Arc<Mutex<UnixStream>>) {
+    // As we have a mutex around the stream, this should be safe
+    // As we can't mix messages on the socket
+    fn shutdown(stream: &Arc<Mutex<UnixStream>>) {
         log::info!("👋 - Sending Goodbye");
         Client::send_to_stream(EchoCommand::Goodbye, stream).unwrap();
         log::info!("💤 - Shutting Down Client");
