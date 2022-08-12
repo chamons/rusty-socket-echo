@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Error, Result};
 use core::time;
 use ctrlc;
 use std::os::unix::net::UnixStream;
@@ -29,14 +29,14 @@ pub fn run_echo_server(path: &str) -> Result<()> {
     let _ = fs::remove_file(path);
 
     // Bind and listen
-    let stream = UnixListener::bind(path)?;
+    let listener = UnixListener::bind(path)?;
 
-    // Set non-blocking
-    stream.set_nonblocking(true)?;
+    // Set listener non-blocking so we can listen for ctrl+c
+    listener.set_nonblocking(true)?;
 
     let mut threads: Vec<JoinHandle<()>> = vec![];
     // Accept
-    for stream in stream.incoming() {
+    for stream in listener.incoming() {
         if !running.load(Ordering::SeqCst) {
             log::info!("💤 - Starting Safe Server Down");
             for thread in threads {
@@ -45,18 +45,30 @@ pub fn run_echo_server(path: &str) -> Result<()> {
             return Ok(());
         }
 
-        if let Some(stream) = stream.ok() {
-            let running = running.clone();
-            threads.push(thread::spawn(|| handle_client(stream, running)));
-        } else {
-            thread::sleep(time::Duration::from_millis(50));
+        match stream {
+            Ok(stream) => {
+                let running = running.clone();
+                threads.push(thread::spawn(|| handle_client(stream, running)));
+            }
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::WouldBlock => {
+                    // No data on connection, sleep and wait for more data
+                    thread::sleep(time::Duration::from_millis(50));
+                }
+                _ => {
+                    return Err(Error::new(e));
+                }
+            },
         }
     }
     Ok(())
 }
 
 fn handle_client(stream: UnixStream, running: Arc<AtomicBool>) {
-    log::info!("⚡️ - New Connection");
+    log::info!("🧵 - New Connection Thread");
+    // Now that we are on our own thread, no need to block
+    stream.set_nonblocking(false).unwrap();
+
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
     loop {
@@ -65,29 +77,14 @@ fn handle_client(stream: UnixStream, running: Arc<AtomicBool>) {
             return;
         }
 
-        match reader.fill_buf().map(|b| !b.is_empty()) {
-            Ok(has_data) => {
-                if has_data {
-                    // Read
-                    match reader.read_line(&mut line) {
-                        Ok(count) => {
-                            if count == 0 {
-                                // Close
-                                log::info!("🚪 - Connection Closed");
-                                break;
-                            }
-                            print!("{line}");
-                            line.clear();
-                        }
-                        Err(_) => {}
-                    };
-                } else {
-                    thread::sleep(time::Duration::from_millis(50));
-                }
-            }
-            Err(_) => {
-                thread::sleep(time::Duration::from_millis(50));
-            }
-        };
+        // Read
+        let count = reader.read_line(&mut line).unwrap();
+        if count == 0 {
+            // Close
+            log::info!("🚪 - Connection Closed");
+            break;
+        }
+        print!("{line}");
+        line.clear();
     }
 }
