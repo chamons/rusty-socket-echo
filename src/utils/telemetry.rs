@@ -7,7 +7,7 @@ use tracing_subscriber::{fmt::Layer, layer::SubscriberExt, EnvFilter, Registry};
 fn get_subscriber(env_filter: &str) -> impl Subscriber + Sync + Send {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(env_filter));
     let sub = Registry::default().with(env_filter);
-    return sub.with(Layer::default().with_level(false).with_target(false));
+    sub.with(Layer::default().with_level(false).with_target(false))
 }
 
 // Initialize a standard simple telemetry package:

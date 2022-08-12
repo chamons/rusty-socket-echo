@@ -1,25 +1,21 @@
 use anyhow::Result;
-use std::{
-    io::{BufWriter, Write},
-    os::unix::net::UnixStream,
-};
+use std::{io::Write, os::unix::net::UnixStream};
 use tracing::log;
 
 #[tracing::instrument]
 pub fn run_client(path: &str) -> Result<()> {
     log::info!("🚀 - Starting echo client");
 
-    let stream = UnixStream::connect(path)?;
-    let mut writer = BufWriter::new(stream);
+    let mut stream = UnixStream::connect(path)?;
     let stdin = std::io::stdin();
     let mut line = String::new();
     loop {
         stdin.read_line(&mut line)?;
-        if line.len() == 0 {
+        if line.is_empty() {
             log::info!("🚪 - Session Complete");
             break;
         }
-        writer.write(line.as_bytes())?;
+        stream.write_all(line.as_bytes())?;
         line.clear();
     }
     Ok(())
