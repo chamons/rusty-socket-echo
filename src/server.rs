@@ -76,11 +76,13 @@ fn handle_client(stream: UnixStream, running: Arc<AtomicBool>) {
 
         // Read
         match EchoCommand::read(&mut reader).unwrap() {
-            EchoCommand::Hello => {}
+            EchoCommand::Hello => {
+                log::info!("👋 - Connection Started");
+            }
             EchoCommand::Goodbye => {
                 // Close
                 log::info!("🚪 - Connection Closed");
-                break;
+                return;
             }
             EchoCommand::Message(msg) => {
                 print!("{msg}");
