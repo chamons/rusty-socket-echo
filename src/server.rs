@@ -1,6 +1,5 @@
 use anyhow::{Error, Result};
 use core::time;
-use ctrlc;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -9,19 +8,13 @@ use std::{fs, io::BufReader, os::unix::net::UnixListener};
 use tracing::log;
 
 use crate::message::EchoCommand;
+use crate::utils::create_ctrlc_waiter;
 
 #[tracing::instrument]
 pub fn run_echo_server(path: &str) -> Result<()> {
     log::info!("🚀 - Starting up an echo server");
 
-    // Create a thread-safe boolean to store "we need to shutdown right now" state
-    let running = Arc::new(AtomicBool::new(true));
-    {
-        let running = running.clone();
-        ctrlc::set_handler(move || {
-            running.store(false, Ordering::SeqCst);
-        })?;
-    }
+    let running = create_ctrlc_waiter()?;
 
     // Delete if socket already open
     let _ = fs::remove_file(path);
@@ -37,6 +30,8 @@ pub fn run_echo_server(path: &str) -> Result<()> {
     for stream in listener.incoming() {
         if !running.load(Ordering::SeqCst) {
             log::info!("💤 - Starting Safe Server Down");
+            // BUG - If an outstanding client does not disconnect this can block
+            // forever. Can't find an API to join with a timeout - https://github.com/rust-lang/rfcs/issues/1404
             for thread in threads {
                 thread.join().unwrap()
             }
@@ -76,8 +71,8 @@ fn handle_client(stream: UnixStream, running: Arc<AtomicBool>) {
 
         // Read
         match EchoCommand::read(&mut reader).unwrap() {
-            EchoCommand::Hello => {
-                log::info!("👋 - Connection Started");
+            EchoCommand::Hello(response_path) => {
+                log::info!("👋 - Connection Started: {response_path}");
             }
             EchoCommand::Goodbye => {
                 // Close

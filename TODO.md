@@ -1,1 +1,2 @@
-- Create message format so we can create reply socket and kill it on quit
+- Figure out how to get client to respect ctrl+c with blocking IO
+- Have server echo messages 

@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum EchoCommand {
-    Hello,
+    Hello(String),
     Message(String),
     Goodbye,
 }
 
 impl EchoCommand {
     pub fn send(&self, stream: &mut dyn io::Write) -> Result<()> {
-        let data: Vec<u8> = bincode::serialize(self).unwrap();
+        let data: Vec<u8> = bincode::serialize(self)?;
         stream.write(&data.len().to_be_bytes())?;
         stream.write_all(&data)?;
         Ok(())
@@ -34,7 +34,11 @@ mod tests {
 
     #[test]
     fn round_trip_message() {
-        for message in [EchoCommand::Hello, EchoCommand::Message("Hello World".to_owned()), EchoCommand::Goodbye] {
+        for message in [
+            EchoCommand::Hello("foo.socket".to_owned()),
+            EchoCommand::Message("Hello World".to_owned()),
+            EchoCommand::Goodbye,
+        ] {
             let mut buff = vec![];
             message.send(&mut buff).unwrap();
             assert_eq!(message, EchoCommand::read(&mut buff.as_slice()).unwrap());
