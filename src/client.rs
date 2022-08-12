@@ -11,11 +11,11 @@ pub fn run_client(path: &str) -> Result<()> {
     let mut line = String::new();
     loop {
         stdin.read_line(&mut line)?;
-        if line.len() == 0 {
+        if line.is_empty() {
             log::info!("🚪 - Session Complete");
             break;
         }
-        stream.write(line.as_bytes())?;
+        stream.write_all(line.as_bytes())?;
         line.clear();
     }
     Ok(())
