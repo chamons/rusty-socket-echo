@@ -3,7 +3,6 @@ use tracing::log;
 use uuid::Uuid;
 
 use std::collections::HashMap;
-use std::io::Write;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};

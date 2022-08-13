@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::{
     fs,
-    io::{BufRead, BufReader},
+    io::BufReader,
     os::unix::net::{UnixListener, UnixStream},
     sync::{Arc, Mutex},
 };
@@ -82,7 +82,7 @@ impl Client {
     // As we can't mix messages on the socket
     fn shutdown(stream: &Arc<Mutex<UnixStream>>, id: &Arc<Mutex<Option<String>>>) {
         log::info!("👋 - Sending Goodbye");
-        let id = Client::get_id(&id);
+        let id = Client::get_id(id);
         let _ = Client::send_to_stream(EchoCommand::Goodbye(id), stream);
         log::warn!("💤 - Shutting Down Client");
         // TODO - Not cleaning up temporary file

@@ -42,7 +42,7 @@ where
     T: serde::Serialize,
 {
     let data: Vec<u8> = bincode::serialize(command)?;
-    stream.write(&data.len().to_be_bytes())?;
+    stream.write_all(&data.len().to_be_bytes())?;
     stream.write_all(&data)?;
     Ok(())
 }
