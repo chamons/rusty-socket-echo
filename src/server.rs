@@ -1,4 +1,7 @@
 use anyhow::Result;
+use tracing::log;
+use uuid::Uuid;
+
 use std::collections::HashMap;
 use std::io::Write;
 use std::net::Shutdown;
@@ -6,9 +9,8 @@ use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::{fs, io::BufReader, os::unix::net::UnixListener};
-use tracing::log;
 
-use crate::message::EchoCommand;
+use crate::message::{EchoCommand, EchoResponse};
 
 struct Server {
     server_socket: UnixListener,
@@ -50,7 +52,8 @@ impl Server {
         log::warn!("💤 - Starting Safe Server Down");
 
         log::info!("🔌 - Shutting Down Connection Sockets");
-        for stream in response_sockets.lock().unwrap().values() {
+        for mut stream in response_sockets.lock().unwrap().values() {
+            let _ = EchoResponse::Goodbye().send(&mut stream);
             let _ = stream.shutdown(Shutdown::Both);
         }
 
@@ -67,36 +70,36 @@ impl Server {
         Ok(UnixListener::bind(server_socket_path)?)
     }
 
-    fn get_stream_name(stream: &UnixStream) -> String {
-        let addr = stream.local_addr().unwrap();
-        let path = addr.as_pathname().unwrap();
-        path.to_str().unwrap().to_owned()
-    }
-
     fn handle_client(stream: UnixStream, response_sockets: Arc<Mutex<HashMap<String, UnixStream>>>) {
         log::info!("🧵 - New Connection Thread");
 
-        let stream_name = Server::get_stream_name(&stream);
         let mut reader = BufReader::new(stream);
         loop {
             // Read
             match EchoCommand::read(&mut reader).unwrap() {
                 EchoCommand::Hello(response_path) => {
-                    log::info!("👋 - Connection Started: {response_path}");
-                    let response_socket = UnixStream::connect(response_path.clone()).unwrap();
-                    response_sockets.lock().unwrap().insert(stream_name.clone(), response_socket);
+                    log::info!("👋 - Connection Started");
+                    let mut response_socket = UnixStream::connect(response_path.clone()).unwrap();
+                    let id = Uuid::new_v4().to_string();
+                    log::info!("📖 - ID Assigned {id}");
+                    EchoResponse::IdAssigned(id.clone()).send(&mut response_socket).unwrap();
+                    response_sockets.lock().unwrap().insert(id, response_socket);
                 }
-                EchoCommand::Goodbye => {
+                EchoCommand::Message(msg, id) => {
+                    log::debug!("Received: {} from {id}", msg.trim_end());
+                    let response_sockets = response_sockets.lock().unwrap();
+                    let mut stream = response_sockets.get(&id).unwrap();
+                    EchoResponse::EchoResponse(msg).send(&mut stream).unwrap();
+                }
+                EchoCommand::Goodbye(id) => {
                     // Close
-                    response_sockets.lock().unwrap().remove(&stream_name);
+                    let mut response_sockets = response_sockets.lock().unwrap();
+                    let mut stream = response_sockets.get(&id).unwrap();
+                    // They may have already shut down the socket, so ignore any errors
+                    let _ = EchoResponse::Goodbye().send(&mut stream);
+                    response_sockets.remove(&id);
                     log::info!("🚪 - Connection Closed");
                     return;
-                }
-                EchoCommand::Message(msg) => {
-                    log::debug!("Received: {msg}");
-                    let socket = response_sockets.lock().unwrap();
-                    let mut stream = socket.get(&stream_name).unwrap();
-                    stream.write_all(msg.as_bytes()).unwrap();
                 }
             }
         }

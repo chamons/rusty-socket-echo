@@ -7,12 +7,13 @@ use std::{
 };
 use tracing::log;
 
-use crate::message::EchoCommand;
+use crate::message::{EchoCommand, EchoResponse};
 
 struct Client {
     server_stream: Arc<Mutex<UnixStream>>,
     response_socket_file: tempfile::NamedTempFile,
     response_socket: UnixListener,
+    id: Arc<Mutex<Option<String>>>,
 }
 
 impl Client {
@@ -25,6 +26,7 @@ impl Client {
             server_stream,
             response_socket_file,
             response_socket,
+            id: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -46,17 +48,25 @@ impl Client {
         self.send(EchoCommand::Hello(self.response_socket_file.as_ref().to_str().unwrap().to_string()))?;
 
         std::thread::scope(|s| {
-            s.spawn(|| Client::handle_server_response(&mut self.response_socket));
-            s.spawn(|| Client::handle_input(self.server_stream.clone()));
+            s.spawn(|| Client::handle_server_response(&mut self.response_socket, self.id.clone()));
+            s.spawn(|| Client::handle_input(self.server_stream.clone(), self.id.clone()));
         });
 
-        self.send(EchoCommand::Goodbye)?;
+        let id = Client::get_id(&self.id);
+        self.send(EchoCommand::Goodbye(id))?;
         Ok(())
+    }
+
+    fn get_id(id: &Arc<Mutex<Option<String>>>) -> String {
+        let lock = id.lock().unwrap();
+        let id: &Option<&String> = &lock.as_ref();
+        (*id.as_ref().unwrap()).clone()
     }
 
     fn setup_ctrlc_handler(&self) -> Result<()> {
         let server_stream = self.server_stream.clone();
-        ctrlc::set_handler(move || Client::shutdown(&server_stream))?;
+        let id = self.id.clone();
+        ctrlc::set_handler(move || Client::shutdown(&server_stream, &id))?;
         Ok(())
     }
 
@@ -70,15 +80,16 @@ impl Client {
 
     // As we have a mutex around the stream, this should be safe
     // As we can't mix messages on the socket
-    fn shutdown(stream: &Arc<Mutex<UnixStream>>) {
+    fn shutdown(stream: &Arc<Mutex<UnixStream>>, id: &Arc<Mutex<Option<String>>>) {
         log::info!("👋 - Sending Goodbye");
-        let _ = Client::send_to_stream(EchoCommand::Goodbye, stream);
+        let id = Client::get_id(&id);
+        let _ = Client::send_to_stream(EchoCommand::Goodbye(id), stream);
         log::warn!("💤 - Shutting Down Client");
         // TODO - Not cleaning up temporary file
         std::process::exit(0);
     }
 
-    fn handle_input(stream: Arc<Mutex<UnixStream>>) {
+    fn handle_input(stream: Arc<Mutex<UnixStream>>, id: Arc<Mutex<Option<String>>>) {
         log::info!("⌨️ - Starting Input Thread");
 
         let stdin = std::io::stdin();
@@ -86,24 +97,33 @@ impl Client {
         loop {
             stdin.read_line(&mut line).unwrap();
             if line.is_empty() {
-                Client::shutdown(&stream);
+                Client::shutdown(&stream, &id);
                 break;
             }
-            Client::send_to_stream(EchoCommand::Message(line.to_owned()), &stream).unwrap();
+            let id = Client::get_id(&id);
+            Client::send_to_stream(EchoCommand::Message(line.to_owned(), id), &stream).unwrap();
             line.clear();
         }
     }
 
-    fn handle_server_response(listener: &mut UnixListener) {
+    fn handle_server_response(listener: &mut UnixListener, id: Arc<Mutex<Option<String>>>) {
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
                     let mut reader = BufReader::new(stream);
-                    let mut line = String::new();
                     loop {
-                        reader.read_line(&mut line).unwrap();
-                        print!("> {line}");
-                        line.clear();
+                        match EchoResponse::read(&mut reader).unwrap() {
+                            EchoResponse::IdAssigned(assigned_id) => {
+                                *id.lock().unwrap() = Some(assigned_id);
+                            }
+                            EchoResponse::EchoResponse(line) => {
+                                print!("> {line}");
+                            }
+                            EchoResponse::Goodbye() => {
+                                log::info!("🔌 - Response socket closed");
+                                return;
+                            }
+                        }
                     }
                 }
                 Err(e) => {
