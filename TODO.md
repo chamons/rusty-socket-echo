@@ -1,1 +1,0 @@
-- Create message format so we can create reply socket and kill it on quit
