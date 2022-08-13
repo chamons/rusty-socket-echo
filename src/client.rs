@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::{
     fs,
     io::{BufRead, BufReader},
@@ -11,41 +11,39 @@ use crate::message::EchoCommand;
 
 struct Client {
     server_stream: Arc<Mutex<UnixStream>>,
-    response_socket_path: String,
+    response_socket_file: tempfile::NamedTempFile,
     response_socket: UnixListener,
 }
 
 impl Client {
     pub fn connect(server_socket_path: &str) -> Result<Self> {
-        log::info!("🚀 - Starting echo client");
+        log::warn!("🚀 - Starting echo client");
         let server_stream = Arc::new(Mutex::new(UnixStream::connect(server_socket_path)?));
-        let (response_socket_path, response_socket) = Client::create_response_socket()?;
+        let (response_socket_file, response_socket) = Client::create_response_socket()?;
+
         Ok(Client {
             server_stream,
-            response_socket_path,
+            response_socket_file,
             response_socket,
         })
     }
 
-    fn create_response_socket() -> Result<(String, UnixListener)> {
+    fn create_response_socket() -> Result<(tempfile::NamedTempFile, UnixListener)> {
         let response_socket = tempfile::NamedTempFile::new()?;
-        let response_socket_path = response_socket
-            .path()
-            .to_str()
-            .ok_or_else(|| anyhow!("Temporary path was not utf-8"))?
-            .to_owned();
+        let response_socket_path = response_socket.as_ref();
 
-        log::info!("Response Socket: {response_socket_path}");
+        log::info!("Response Socket: {}", response_socket_path.display());
 
         let _ = fs::remove_file(&response_socket_path);
+        let listener = UnixListener::bind(response_socket_path)?;
         // Bind and listen on the response socket
-        Ok((response_socket_path, UnixListener::bind(&response_socket)?))
+        Ok((response_socket, listener))
     }
 
     pub fn run(&mut self) -> Result<()> {
         self.setup_ctrlc_handler()?;
 
-        self.send(EchoCommand::Hello(self.response_socket_path.clone()))?;
+        self.send(EchoCommand::Hello(self.response_socket_file.as_ref().to_str().unwrap().to_string()))?;
 
         std::thread::scope(|s| {
             s.spawn(|| Client::handle_server_response(&mut self.response_socket));
@@ -74,8 +72,9 @@ impl Client {
     // As we can't mix messages on the socket
     fn shutdown(stream: &Arc<Mutex<UnixStream>>) {
         log::info!("👋 - Sending Goodbye");
-        Client::send_to_stream(EchoCommand::Goodbye, stream).unwrap();
-        log::info!("💤 - Shutting Down Client");
+        let _ = Client::send_to_stream(EchoCommand::Goodbye, stream);
+        log::warn!("💤 - Shutting Down Client");
+        // TODO - Not cleaning up temporary file
         std::process::exit(0);
     }
 
@@ -103,7 +102,7 @@ impl Client {
                     let mut line = String::new();
                     loop {
                         reader.read_line(&mut line).unwrap();
-                        println!("{line}");
+                        print!("> {line}");
                         line.clear();
                     }
                 }

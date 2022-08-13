@@ -1,2 +1,0 @@
-- Figure out how to get client to respect ctrl+c with blocking IO
-- Have server echo messages 
