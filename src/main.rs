@@ -3,13 +3,14 @@ use anyhow::Result;
 use clap::Parser;
 use echo::{run_tool, utils, ToolArgs};
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = ToolArgs::parse();
 
     init_telemetry_from_verbose(args.verbose)?;
 
     // Parse arguments and start your tool here
-    run_tool(args)?;
+    run_tool(args).await?;
     Ok(())
 }
 

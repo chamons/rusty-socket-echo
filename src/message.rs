@@ -1,7 +1,6 @@
-use std::io;
-
 use anyhow::Result;
 use serde::{de, Deserialize, Serialize};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum EchoCommand {
@@ -11,12 +10,18 @@ pub enum EchoCommand {
 }
 
 impl EchoCommand {
-    pub fn send(&self, stream: &mut dyn io::Write) -> Result<()> {
-        send(&self, stream)
+    pub async fn send<W>(&self, stream: &mut W) -> Result<()>
+    where
+        W: tokio::io::AsyncWrite + std::marker::Unpin,
+    {
+        send(&self, stream).await
     }
 
-    pub fn read(stream: &mut dyn io::Read) -> Result<EchoCommand> {
-        read(stream)
+    pub async fn read<R>(stream: &mut R) -> Result<EchoCommand>
+    where
+        R: tokio::io::AsyncRead + std::marker::Unpin,
+    {
+        read(stream).await
     }
 }
 
@@ -28,49 +33,63 @@ pub enum EchoResponse {
 }
 
 impl EchoResponse {
-    pub fn send(&self, stream: &mut dyn io::Write) -> Result<()> {
-        send(&self, stream)
+    pub async fn send<W>(&self, stream: &mut W) -> Result<()>
+    where
+        W: tokio::io::AsyncWrite + std::marker::Unpin,
+    {
+        send(&self, stream).await
     }
 
-    pub fn read(stream: &mut dyn io::Read) -> Result<EchoResponse> {
-        read(stream)
+    pub async fn read<R>(stream: &mut R) -> Result<EchoResponse>
+    where
+        R: tokio::io::AsyncRead + std::marker::Unpin,
+    {
+        read(stream).await
     }
 }
 
-fn send<T: ?Sized>(command: &T, stream: &mut dyn io::Write) -> Result<()>
+async fn send<T: ?Sized, W>(command: &T, stream: &mut W) -> Result<()>
 where
     T: serde::Serialize,
+    W: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let data: Vec<u8> = bincode::serialize(command)?;
-    stream.write_all(&data.len().to_be_bytes())?;
-    stream.write_all(&data)?;
+    stream.write_all(&data.len().to_be_bytes()).await?;
+    stream.write_all(&data).await?;
     Ok(())
 }
 
-fn read<T: de::DeserializeOwned>(stream: &mut dyn io::Read) -> Result<T> {
+async fn read<T: de::DeserializeOwned, R>(stream: &mut R) -> Result<T>
+where
+    R: tokio::io::AsyncRead + std::marker::Unpin,
+{
     let mut length: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
-    stream.read_exact(&mut length)?;
+    stream.read_exact(&mut length).await?;
     let length = usize::from_be_bytes(length);
     let mut message = vec![0; length];
-    stream.read_exact(&mut message)?;
+    stream.read_exact(&mut message).await?;
     let data: T = bincode::deserialize(&message)?;
     Ok(data)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Cursor, Seek};
+
     use super::EchoCommand;
 
-    #[test]
-    fn round_trip_message() {
+    #[tokio::test]
+    async fn round_trip_message() {
         for message in [
             EchoCommand::Hello("foo.socket".to_owned()),
             EchoCommand::Message("Hello World".to_owned(), "1".to_string()),
             EchoCommand::Goodbye("1".to_string()),
         ] {
-            let mut buff = vec![];
-            message.send(&mut buff).unwrap();
-            assert_eq!(message, EchoCommand::read(&mut buff.as_slice()).unwrap());
+            let buff: Cursor<Vec<u8>> = Cursor::new(vec![]);
+            tokio::pin!(buff);
+            message.send(&mut buff).await.unwrap();
+            buff.rewind().unwrap();
+            assert_eq!(message, EchoCommand::read(&mut buff).await.unwrap());
         }
     }
 }

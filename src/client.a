@@ -70,12 +70,12 @@ impl Client {
         Ok(())
     }
 
-    fn send(&mut self, command: EchoCommand) -> Result<()> {
-        Client::send_to_stream(command, &self.server_stream)
+    async fn send(&mut self, command: EchoCommand) -> Result<()> {
+        Client::send_to_stream(command, &self.server_stream).await
     }
 
-    fn send_to_stream(command: EchoCommand, stream: &Arc<Mutex<UnixStream>>) -> Result<()> {
-        command.send(&mut *stream.lock().unwrap())
+    async fn send_to_stream(command: EchoCommand, stream: &Arc<Mutex<UnixStream>>) -> Result<()> {
+        command.send(&mut *stream.lock().unwrap()).await
     }
 
     // As we have a mutex around the stream, this should be safe
@@ -101,7 +101,7 @@ impl Client {
                 break;
             }
             let id = Client::get_id(&id);
-            Client::send_to_stream(EchoCommand::Message(line.to_owned(), id), &stream).unwrap();
+            Client::send_to_stream(EchoCommand::Message(line.to_owned(), id), &stream).await.unwrap();
             line.clear();
         }
     }
