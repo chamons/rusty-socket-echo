@@ -5,8 +5,8 @@ use clap::Parser;
 use itertools::Itertools;
 use tracing::log;
 
+pub mod client;
 pub mod message;
-// pub mod client;
 pub mod server;
 pub mod utils;
 
@@ -32,7 +32,7 @@ pub async fn run_tool(args: ToolArgs) -> Result<()> {
     if args.server {
         server::run_echo_server(&args.socket_path).await?;
     } else {
-        // client::run_client(&args.socket_path)?;
+        client::run_client(&args.socket_path).await?;
     }
     log::info!("Shutting down");
     Ok(())

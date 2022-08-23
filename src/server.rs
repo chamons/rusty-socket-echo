@@ -1,14 +1,10 @@
-use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use tokio::io::BufReader;
-use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::signal;
 use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinHandle;
 use tracing::log;
 use uuid::Uuid;
 
@@ -29,9 +25,9 @@ impl Server {
 
         Server {
             server_socket_path: server_socket_path.to_owned(),
-            notify_shutdown: notify_shutdown,
+            notify_shutdown,
             shutdown_complete_rx,
-            shutdown_complete_tx: shutdown_complete_tx,
+            shutdown_complete_tx,
         }
     }
 

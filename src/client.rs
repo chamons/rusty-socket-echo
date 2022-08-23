@@ -1,9 +1,13 @@
 use anyhow::Result;
 use std::{
     fs,
-    io::BufReader,
-    os::unix::net::{UnixListener, UnixStream},
     sync::{Arc, Mutex},
+};
+use tokio::{
+    io::BufReader,
+    net::{UnixListener, UnixStream},
+    signal,
+    sync::{broadcast, mpsc},
 };
 use tracing::log;
 
@@ -14,19 +18,28 @@ struct Client {
     response_socket_file: tempfile::NamedTempFile,
     response_socket: UnixListener,
     id: Arc<Mutex<Option<String>>>,
+    notify_shutdown: broadcast::Sender<()>,
+    shutdown_complete_rx: mpsc::Receiver<()>,
+    shutdown_complete_tx: mpsc::Sender<()>,
 }
 
 impl Client {
-    pub fn connect(server_socket_path: &str) -> Result<Self> {
+    pub async fn new(server_socket_path: &str) -> Result<Self> {
         log::warn!("🚀 - Starting echo client");
-        let server_stream = Arc::new(Mutex::new(UnixStream::connect(server_socket_path)?));
+        let server_stream = Arc::new(Mutex::new(UnixStream::connect(server_socket_path).await?));
         let (response_socket_file, response_socket) = Client::create_response_socket()?;
+
+        let (notify_shutdown, _) = broadcast::channel::<()>(1);
+        let (shutdown_complete_tx, shutdown_complete_rx) = mpsc::channel::<()>(1);
 
         Ok(Client {
             server_stream,
             response_socket_file,
             response_socket,
             id: Arc::new(Mutex::new(None)),
+            notify_shutdown,
+            shutdown_complete_rx,
+            shutdown_complete_tx,
         })
     }
 
@@ -42,18 +55,36 @@ impl Client {
         Ok((response_socket, listener))
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        self.setup_ctrlc_handler()?;
+    pub async fn startup(server_socket_path: &str) -> Result<()> {
+        let mut client = Client::new(server_socket_path).await?;
 
-        self.send(EchoCommand::Hello(self.response_socket_file.as_ref().to_str().unwrap().to_string()))?;
+        tokio::select! {
+            res = client.run() => {
+                if let Err(err) = res {
+                    log::error!("🐛 - Error from client - {err}");
+                }
+            }
+            _ = signal::ctrl_c() => {
+                log::warn!("💤 - Starting Safe Client Down");
+            }
+        }
 
-        std::thread::scope(|s| {
-            s.spawn(|| Client::handle_server_response(&mut self.response_socket, self.id.clone()));
-            s.spawn(|| Client::handle_input(self.server_stream.clone(), self.id.clone()));
-        });
+        Ok(())
+    }
+
+    pub async fn run(&mut self) -> Result<()> {
+        self.send(EchoCommand::Hello(self.response_socket_file.as_ref().to_str().unwrap().to_string()))
+            .await?;
+
+        let response = Client::handle_server_response(&mut self.response_socket, self.id.clone());
+        let input = Client::handle_input(self.server_stream.clone(), self.id.clone());
+        tokio::select! {
+            _ = response => {},
+            _ = input => {},
+        };
 
         let id = Client::get_id(&self.id);
-        self.send(EchoCommand::Goodbye(id))?;
+        self.send(EchoCommand::Goodbye(id)).await?;
         Ok(())
     }
 
@@ -61,13 +92,6 @@ impl Client {
         let lock = id.lock().unwrap();
         let id: &Option<&String> = &lock.as_ref();
         (*id.as_ref().unwrap()).clone()
-    }
-
-    fn setup_ctrlc_handler(&self) -> Result<()> {
-        let server_stream = self.server_stream.clone();
-        let id = self.id.clone();
-        ctrlc::set_handler(move || Client::shutdown(&server_stream, &id))?;
-        Ok(())
     }
 
     async fn send(&mut self, command: EchoCommand) -> Result<()> {
@@ -89,7 +113,7 @@ impl Client {
         std::process::exit(0);
     }
 
-    fn handle_input(stream: Arc<Mutex<UnixStream>>, id: Arc<Mutex<Option<String>>>) {
+    async fn handle_input(stream: Arc<Mutex<UnixStream>>, id: Arc<Mutex<Option<String>>>) {
         log::info!("⌨️ - Starting Input Thread");
 
         let stdin = std::io::stdin();
@@ -106,28 +130,20 @@ impl Client {
         }
     }
 
-    fn handle_server_response(listener: &mut UnixListener, id: Arc<Mutex<Option<String>>>) {
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    let mut reader = BufReader::new(stream);
-                    loop {
-                        match EchoResponse::read(&mut reader).unwrap() {
-                            EchoResponse::IdAssigned(assigned_id) => {
-                                *id.lock().unwrap() = Some(assigned_id);
-                            }
-                            EchoResponse::EchoResponse(line) => {
-                                print!("> {line}");
-                            }
-                            EchoResponse::Goodbye() => {
-                                log::info!("🔌 - Response socket closed");
-                                return;
-                            }
-                        }
-                    }
+    async fn handle_server_response(listener: &mut UnixListener, id: Arc<Mutex<Option<String>>>) -> Result<()> {
+        loop {
+            let (stream, _) = listener.accept().await?;
+            let mut reader = BufReader::new(stream);
+            match EchoResponse::read(&mut reader).await? {
+                EchoResponse::IdAssigned(assigned_id) => {
+                    *id.lock().unwrap() = Some(assigned_id);
                 }
-                Err(e) => {
-                    log::info!("🐛 - Error in listening to server response: {e}");
+                EchoResponse::EchoResponse(line) => {
+                    print!("> {line}");
+                }
+                EchoResponse::Goodbye() => {
+                    log::info!("🔌 - Response socket closed");
+                    return Ok(());
                 }
             }
         }
@@ -135,7 +151,7 @@ impl Client {
 }
 
 #[tracing::instrument]
-pub fn run_client(server_socket_path: &str) -> Result<()> {
-    let mut client = Client::connect(server_socket_path)?;
-    client.run()
+pub async fn run_client(server_socket_path: &str) -> Result<()> {
+    Client::startup(server_socket_path).await;
+    Ok(())
 }
