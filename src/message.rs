@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde::{de, Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tracing::log;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum EchoCommand {
@@ -54,12 +55,13 @@ where
     W: tokio::io::AsyncWrite + std::marker::Unpin,
 {
     let data: Vec<u8> = bincode::serialize(command)?;
+    log::info!("✉️ - Sending {} bytes - {:?}", data.len(), data);
     stream.write_all(&data.len().to_be_bytes()).await?;
     stream.write_all(&data).await?;
     Ok(())
 }
 
-async fn read<T: de::DeserializeOwned, R>(stream: &mut R) -> Result<T>
+async fn read<T: de::DeserializeOwned + std::fmt::Debug, R>(stream: &mut R) -> Result<T>
 where
     R: tokio::io::AsyncRead + std::marker::Unpin,
 {
@@ -69,6 +71,7 @@ where
     let mut message = vec![0; length];
     stream.read_exact(&mut message).await?;
     let data: T = bincode::deserialize(&message)?;
+    log::info!("✉️ - Received {} bytes - {:?}", length, data);
     Ok(data)
 }
 

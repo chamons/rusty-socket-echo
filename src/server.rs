@@ -40,13 +40,14 @@ impl Server {
     pub async fn startup(server_socket_path: &str) -> Result<()> {
         let server = Server::new(server_socket_path);
 
+        let ctrlc = tokio::spawn(async move { signal::ctrl_c().await.unwrap() });
         tokio::select! {
             res = server.run() => {
                 if let Err(err) = res {
                     log::error!("🐛 - Error from server - {err}");
                 }
             }
-            _ = signal::ctrl_c() => {
+            _ = ctrlc => {
                 log::warn!("💤 - Starting Safe Server Down");
             }
         }
@@ -121,7 +122,7 @@ impl Handler {
                     log::debug!("Received: {} from {id}", msg.trim_end());
                     EchoResponse::EchoResponse(msg).send(self.response_socket.as_mut().unwrap()).await.unwrap();
                 }
-                EchoCommand::Goodbye(id) => {
+                EchoCommand::Goodbye(_id) => {
                     // Close
                     // They may have already shut down the socket, so ignore any errors
                     let _ = EchoResponse::Goodbye().send(self.response_socket.as_mut().unwrap());

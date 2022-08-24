@@ -20,7 +20,9 @@
                 }
             },
             "args": [
-                "--server"
+                "-v",
+                "-v",
+                "-v"
             ],
             "cwd": "${workspaceFolder}"
         },
