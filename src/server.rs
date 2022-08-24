@@ -36,6 +36,7 @@ impl Server {
             log::warn!("💤 - Safe Server Complete");
         });
         server.run(shutdown_copy).await?;
+        log::warn!("💤 - Startup Complete");
 
         Ok(())
     }
@@ -61,6 +62,7 @@ impl Server {
         let shutdown = tokio::spawn(async move {
             server_shutdown.recv().await;
         });
+        log::error!("Start of run");
 
         tokio::select! {
             _ = process => {},
