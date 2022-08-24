@@ -109,8 +109,8 @@ impl Handler {
             let (read, _) = self.stream.split();
             let mut reader = BufReader::new(read);
 
-            match EchoCommand::read(&mut reader).await.unwrap() {
-                EchoCommand::Hello(response_path) => {
+            match EchoCommand::read(&mut reader).await {
+                Ok(EchoCommand::Hello(response_path)) => {
                     log::info!("👋 - Connection Started");
                     let mut response_socket = UnixStream::connect(response_path.clone()).await.unwrap();
                     let id = Uuid::new_v4().to_string();
@@ -118,15 +118,19 @@ impl Handler {
                     EchoResponse::IdAssigned(id.clone()).send(&mut response_socket).await.unwrap();
                     self.response_socket = Some(response_socket);
                 }
-                EchoCommand::Message(msg, id) => {
+                Ok(EchoCommand::Message(msg, id)) => {
                     log::debug!("Received: {} from {id}", msg.trim_end());
                     EchoResponse::EchoResponse(msg).send(self.response_socket.as_mut().unwrap()).await.unwrap();
                 }
-                EchoCommand::Goodbye(_id) => {
+                Ok(EchoCommand::Goodbye(_id)) => {
                     // Close
                     // They may have already shut down the socket, so ignore any errors
                     let _ = EchoResponse::Goodbye().send(self.response_socket.as_mut().unwrap());
                     self.response_socket = None;
+                    log::info!("🚪 - Connection Closed");
+                    return Ok(());
+                }
+                Err(_) => {
                     log::info!("🚪 - Connection Closed");
                     return Ok(());
                 }

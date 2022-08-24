@@ -131,11 +131,8 @@ impl Client {
 
     async fn handle_server_response(listener: UnixListener) -> Result<()> {
         log::info!("⌨️ - Starting Server Response Task");
-        log::info!("1️⃣ - Before Accept");
         let stream = listener.accept().await;
-        log::info!("2️⃣ - After Accept");
         let (stream, _) = stream?;
-        log::info!("2️⃣ - After Accept Unwrap");
         let mut reader = BufReader::new(stream);
 
         loop {
