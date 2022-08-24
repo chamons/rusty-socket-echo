@@ -22,7 +22,8 @@
             "args": [
                 "-v",
                 "-v",
-                "-v"
+                "-v",
+                "--server"
             ],
             "cwd": "${workspaceFolder}"
         },
