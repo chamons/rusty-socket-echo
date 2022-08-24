@@ -1,13 +1,12 @@
 use anyhow::Result;
 use serde::{de, Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tracing::log;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum EchoCommand {
     Hello(String),
-    Message(String, String),
-    Goodbye(String),
+    Message(String),
+    Goodbye(),
 }
 
 impl EchoCommand {
@@ -28,7 +27,6 @@ impl EchoCommand {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum EchoResponse {
-    IdAssigned(String),
     EchoResponse(String),
     Goodbye(),
 }
@@ -83,8 +81,8 @@ mod tests {
     async fn round_trip_message() {
         for message in [
             EchoCommand::Hello("foo.socket".to_owned()),
-            EchoCommand::Message("Hello World".to_owned(), "1".to_string()),
-            EchoCommand::Goodbye("1".to_string()),
+            EchoCommand::Message("Hello World".to_owned()),
+            EchoCommand::Goodbye(),
         ] {
             let buff: Cursor<Vec<u8>> = Cursor::new(vec![]);
             tokio::pin!(buff);

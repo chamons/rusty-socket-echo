@@ -15,7 +15,6 @@ use crate::message::{EchoCommand, EchoResponse};
 
 struct Client {
     server_stream: Arc<Mutex<UnixStream>>,
-    id: Arc<Mutex<Option<String>>>,
     notify_shutdown: broadcast::Sender<()>,
     shutdown_complete_rx: mpsc::Receiver<()>,
     shutdown_complete_tx: mpsc::Sender<()>,
@@ -31,7 +30,6 @@ impl Client {
 
         Ok(Client {
             server_stream,
-            id: Arc::new(Mutex::new(None)),
             notify_shutdown,
             shutdown_complete_rx,
             shutdown_complete_tx,
@@ -81,15 +79,10 @@ impl Client {
             _ = input => {},
         };
 
-        let id = Client::get_id(&self.id);
-        self.send(EchoCommand::Goodbye(id)).await?;
+        self.send(EchoCommand::Goodbye()).await?;
         log::warn!("👋 - Run - Goodbye");
 
         Ok(())
-    }
-
-    fn get_id(id: &Arc<Mutex<Option<String>>>) -> String {
-        "id".to_string()
     }
 
     async fn send(&mut self, command: EchoCommand) -> Result<()> {
@@ -104,7 +97,7 @@ impl Client {
     // As we can't mix messages on the socket
     fn shutdown(stream: &Arc<Mutex<UnixStream>>) {
         log::info!("👋 - Sending Goodbye");
-        let _ = Client::send_to_stream(EchoCommand::Goodbye("".to_string()), stream);
+        let _ = Client::send_to_stream(EchoCommand::Goodbye(), stream);
         log::warn!("💤 - Shutting Down Client");
         // TODO - Not cleaning up temporary file
         std::process::exit(0);
@@ -121,9 +114,7 @@ impl Client {
                 Client::shutdown(&stream);
                 break;
             }
-            Client::send_to_stream(EchoCommand::Message(line.to_owned(), "".to_string()), &stream)
-                .await
-                .unwrap();
+            Client::send_to_stream(EchoCommand::Message(line.to_owned()), &stream).await.unwrap();
             line.clear();
         }
         log::info!("⌨️ - Ending Input Task");
@@ -137,11 +128,7 @@ impl Client {
 
         loop {
             match EchoResponse::read(&mut reader).await? {
-                EchoResponse::IdAssigned(assigned_id) => {
-                    log::info!("✏️ - Received ID: {assigned_id}");
-                }
                 EchoResponse::EchoResponse(line) => {
-                    log::info!("✏️ - Received Response: {line}");
                     print!("> {line}");
                 }
                 EchoResponse::Goodbye() => {

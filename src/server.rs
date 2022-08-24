@@ -6,7 +6,6 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::signal;
 use tokio::sync::{broadcast, mpsc};
 use tracing::log;
-use uuid::Uuid;
 
 use crate::message::{EchoCommand, EchoResponse};
 use crate::utils::Shutdown;
@@ -112,17 +111,13 @@ impl Handler {
             match EchoCommand::read(&mut reader).await {
                 Ok(EchoCommand::Hello(response_path)) => {
                     log::info!("👋 - Connection Started");
-                    let mut response_socket = UnixStream::connect(response_path.clone()).await.unwrap();
-                    let id = Uuid::new_v4().to_string();
-                    log::info!("📖 - ID Assigned {id}");
-                    EchoResponse::IdAssigned(id.clone()).send(&mut response_socket).await.unwrap();
+                    let response_socket = UnixStream::connect(response_path.clone()).await.unwrap();
                     self.response_socket = Some(response_socket);
                 }
-                Ok(EchoCommand::Message(msg, id)) => {
-                    log::debug!("Received: {} from {id}", msg.trim_end());
+                Ok(EchoCommand::Message(msg)) => {
                     EchoResponse::EchoResponse(msg).send(self.response_socket.as_mut().unwrap()).await.unwrap();
                 }
-                Ok(EchoCommand::Goodbye(_id)) => {
+                Ok(EchoCommand::Goodbye()) => {
                     // Close
                     // They may have already shut down the socket, so ignore any errors
                     let _ = EchoResponse::Goodbye().send(self.response_socket.as_mut().unwrap());
