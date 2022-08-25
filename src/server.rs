@@ -125,8 +125,6 @@ impl Handler {
             }
         }
     }
-
-    //             let _ = EchoResponse::Goodbye().send(stream);
 }
 
 #[tracing::instrument]
