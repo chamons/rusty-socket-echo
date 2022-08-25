@@ -27,16 +27,15 @@ impl Server {
         let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<()>(1);
 
         let shutdown_copy = notify_shutdown.clone();
-        tokio::spawn(async move {
-            signal::ctrl_c().await.unwrap();
-            log::warn!("💤 - Starting Safe Server Down");
-            drop(notify_shutdown);
-            drop(shutdown_complete_tx);
-            let _ = shutdown_complete_rx.recv().await;
-            log::warn!("💤 - Safe Server Complete");
-        });
-        server.run(shutdown_copy).await?;
-        log::warn!("💤 - Startup Complete");
+        tokio::select! {
+            _ = server.run(shutdown_copy) => {},
+            _ = signal::ctrl_c() => {}
+        };
+        log::warn!("💤 - Starting Safe Server Down");
+        drop(notify_shutdown);
+        drop(shutdown_complete_tx);
+        let _ = shutdown_complete_rx.recv().await;
+        log::warn!("💤 - Safe Server Complete");
 
         Ok(())
     }
@@ -45,34 +44,22 @@ impl Server {
         log::warn!("🚀 - Starting up an echo server");
         let server_socket = self.create_server_socket()?;
 
-        let mut server_shutdown = Shutdown::new(notify_shutdown.subscribe());
-
-        let process = tokio::spawn(async move {
-            loop {
-                let (stream, _) = server_socket.accept().await.unwrap();
-                let mut handler = Handler::new(stream);
-                let shutdown = Shutdown::new(notify_shutdown.subscribe());
-                tokio::spawn(async move {
-                    if let Err(err) = handler.run(shutdown).await {
-                        log::error!("🐛 - Error from handler - {err}");
-                    }
-                });
-            }
-        });
-        let shutdown = tokio::spawn(async move {
-            server_shutdown.recv().await;
-        });
-        log::error!("Start of run");
-
-        tokio::select! {
-            _ = process => {},
-            _ = shutdown => {
-                log::error!("Got server_shutdown");
+        loop {
+            match server_socket.accept().await {
+                Ok((stream, _)) => {
+                    let mut handler = Handler::new(stream);
+                    let shutdown = Shutdown::new(notify_shutdown.subscribe());
+                    tokio::spawn(async move {
+                        if let Err(err) = handler.run(shutdown).await {
+                            log::error!("🐛 - Error from handler - {err}");
+                        }
+                    });
+                }
+                Err(e) => {
+                    log::error!("🐛 - Error from server socket accept - {e}");
+                }
             }
         }
-        log::error!("End of run");
-
-        Ok(())
     }
 
     fn create_server_socket(&self) -> Result<UnixListener> {
@@ -107,7 +94,7 @@ impl Handler {
         }
         // They may have already shut down the socket, so ignore any errors
         log::info!("👋 - Sending Goodbye");
-        let _ = EchoResponse::Goodbye().send(self.response_socket.as_mut().unwrap());
+        let _ = EchoResponse::Goodbye().send(self.response_socket.as_mut().unwrap()).await;
 
         Ok(())
     }

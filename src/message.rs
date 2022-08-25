@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde::{de, Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tracing::log;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum EchoCommand {
