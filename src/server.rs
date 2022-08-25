@@ -75,12 +75,11 @@ impl Server {
 
 struct Handler {
     stream: UnixStream,
-    response_socket: Option<UnixStream>,
 }
 
 impl Handler {
     pub fn new(stream: UnixStream) -> Self {
-        Handler { stream, response_socket: None }
+        Handler { stream }
     }
 
     pub async fn run(&mut self, mut shutdown: Shutdown) -> Result<()> {
@@ -94,7 +93,7 @@ impl Handler {
         }
         // They may have already shut down the socket, so ignore any errors
         log::info!("👋 - Sending Goodbye");
-        let _ = EchoResponse::Goodbye().send(self.response_socket.as_mut().unwrap()).await;
+        let _ = EchoResponse::Goodbye().send(&mut self.stream).await;
 
         Ok(())
     }
@@ -106,19 +105,16 @@ impl Handler {
             let mut reader = BufReader::new(read);
 
             match EchoCommand::read(&mut reader).await {
-                Ok(EchoCommand::Hello(response_path)) => {
+                Ok(EchoCommand::Hello()) => {
                     log::info!("👋 - Connection Started");
-                    let response_socket = UnixStream::connect(response_path.clone()).await.unwrap();
-                    self.response_socket = Some(response_socket);
                 }
                 Ok(EchoCommand::Message(msg)) => {
-                    EchoResponse::EchoResponse(msg).send(self.response_socket.as_mut().unwrap()).await.unwrap();
+                    EchoResponse::EchoResponse(msg).send(&mut self.stream).await.unwrap();
                 }
                 Ok(EchoCommand::Goodbye()) => {
                     // Close
                     // They may have already shut down the socket, so ignore any errors
-                    let _ = EchoResponse::Goodbye().send(self.response_socket.as_mut().unwrap());
-                    self.response_socket = None;
+                    let _ = EchoResponse::Goodbye().send(&mut self.stream);
                     log::info!("🚪 - Connection Closed");
                     return Ok(());
                 }
