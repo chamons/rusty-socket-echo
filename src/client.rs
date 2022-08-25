@@ -53,12 +53,14 @@ impl Client {
     }
 
     async fn handle_input(mut stream: UnixStream) {
-        log::info!("🧵 - Starting Input Thread");
+        log::info!("Starting Input Task");
 
         let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<String>(1);
 
         // Spawn a thread instead of a task as it will block shutdown in ctrl+c case - https://github.com/tokio-rs/tokio/issues/2466
         std::thread::spawn(move || {
+            log::info!("🧵 - Starting Input Read Thread");
+
             let stdin = std::io::stdin();
             loop {
                 let mut line = String::new();
@@ -73,10 +75,15 @@ impl Client {
         tokio::spawn(async move {
             log::info!("Starting Input Send Task");
             loop {
-                let line = shutdown_complete_rx.recv().await.unwrap();
-                log::info!("Received line: {line}");
-                EchoCommand::Message(line).send(&mut stream).await.unwrap();
-                log::info!("Send Complete");
+                match shutdown_complete_rx.recv().await {
+                    Some(line) => {
+                        EchoCommand::Message(line).send(&mut stream).await.unwrap();
+                    }
+                    None => {
+                        // Empty string sent means EOF, closing time.
+                        break;
+                    }
+                }
             }
         })
         .await
@@ -97,7 +104,6 @@ impl Client {
                 }
                 EchoResponse::Goodbye() => {
                     log::info!("🔌 - Response socket closed");
-                    log::info!("⌨️ - Ending Server Response Task");
                     return Ok(());
                 }
             }
