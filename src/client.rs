@@ -1,8 +1,10 @@
 use anyhow::Result;
-use std::fs;
 use tokio::{
     io::BufReader,
-    net::{UnixListener, UnixStream},
+    net::{
+        unix::{OwnedReadHalf, OwnedWriteHalf},
+        UnixStream,
+    },
     signal,
     sync::mpsc,
 };
@@ -24,15 +26,13 @@ impl Client {
     pub async fn run(&mut self, server_socket_path: &str) -> Result<()> {
         log::warn!("🚀 - Starting echo client");
 
-        let mut server_stream = UnixStream::connect(server_socket_path).await?;
-
-        let (response_socket_file, response_socket) = Client::create_response_socket()?;
-        let response_file_path = response_socket_file.as_ref().to_str().unwrap().to_string();
-        EchoCommand::Hello(response_file_path).send(&mut server_stream).await?;
+        let server_stream = UnixStream::connect(server_socket_path).await?;
+        let (reader, mut writer) = server_stream.into_split();
+        EchoCommand::Hello().send(&mut writer).await?;
 
         tokio::select! {
-            _ = Client::handle_server_response(response_socket) => {},
-            _ = Client::handle_input(server_stream) => {},
+            _ = Client::handle_server_response(reader) => {},
+            _ = Client::handle_input(writer) => {},
             _ = signal::ctrl_c() => {}
         };
         log::warn!("👋 - Quitting echo client");
@@ -40,19 +40,7 @@ impl Client {
         Ok(())
     }
 
-    fn create_response_socket() -> Result<(tempfile::NamedTempFile, UnixListener)> {
-        let response_socket = tempfile::NamedTempFile::new()?;
-        let response_socket_path = response_socket.as_ref();
-
-        log::info!("Response Socket: {}", response_socket_path.display());
-
-        let _ = fs::remove_file(&response_socket_path);
-        let listener = UnixListener::bind(response_socket_path)?;
-        // Bind and listen on the response socket
-        Ok((response_socket, listener))
-    }
-
-    async fn handle_input(mut stream: UnixStream) {
+    async fn handle_input(mut writer: OwnedWriteHalf) {
         log::info!("Starting Input Task");
 
         let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<String>(1);
@@ -78,7 +66,7 @@ impl Client {
             loop {
                 match shutdown_complete_rx.recv().await {
                     Some(line) => {
-                        EchoCommand::Message(line).send(&mut stream).await.unwrap();
+                        EchoCommand::Message(line).send(&mut writer).await.unwrap();
                     }
                     None => {
                         // Empty string sent means EOF, closing time.
@@ -92,11 +80,9 @@ impl Client {
         log::info!("⌨️ - Ending Input Task");
     }
 
-    async fn handle_server_response(listener: UnixListener) -> Result<()> {
+    async fn handle_server_response(reader: OwnedReadHalf) -> Result<()> {
         log::info!("⌨️ - Starting Server Response Task");
-        let stream = listener.accept().await;
-        let (stream, _) = stream?;
-        let mut reader = BufReader::new(stream);
+        let mut reader = BufReader::new(reader);
 
         loop {
             match EchoResponse::read(&mut reader).await? {

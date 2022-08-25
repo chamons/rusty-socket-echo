@@ -4,7 +4,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum EchoCommand {
-    Hello(String),
+    Hello(),
     Message(String),
     Goodbye(),
 }
@@ -79,11 +79,7 @@ mod tests {
 
     #[tokio::test]
     async fn round_trip_message() {
-        for message in [
-            EchoCommand::Hello("foo.socket".to_owned()),
-            EchoCommand::Message("Hello World".to_owned()),
-            EchoCommand::Goodbye(),
-        ] {
+        for message in [EchoCommand::Hello(), EchoCommand::Message("Hello World".to_owned()), EchoCommand::Goodbye()] {
             let buff: Cursor<Vec<u8>> = Cursor::new(vec![]);
             tokio::pin!(buff);
             message.send(&mut buff).await.unwrap();
