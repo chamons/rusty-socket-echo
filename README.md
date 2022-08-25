@@ -1,17 +1,6 @@
-# rust-terminal-tool-template
+# rusty-socket-echo
 
-A template for bootstrapping simple command line rust tools with clap and tracing
+This is a sample which uses [tokio](https://tokio.rs/) to create a simple client/server that speak a common protocol for echo. 
 
-## Usage
+Instead of a simple line protocol (repeat each line and quit when the socket closes), this projcet uses enums serialized with [bincode](https://docs.rs/bincode/latest/bincode/) to connect/disconnect sessions. Admittingly this is overkill for this example, but it was for learning. 
 
-1. Install [`cargo-generate`](https://github.com/cargo-generate/cargo-generate#installation)
-
-```sh
-cargo install cargo-generate
-```
-
-2. Clone this repository via `cargo-generate`:
-
-```sh
-cargo generate --git https://github.com/chamons/rust-terminal-tool-template --name <project-name>
-```
