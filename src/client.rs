@@ -72,6 +72,7 @@ impl Client {
             }
         });
 
+        #[allow(clippy::while_let_loop)] // Loop makes task lifetime more clear
         tokio::spawn(async move {
             log::info!("Starting Input Send Task");
             loop {
