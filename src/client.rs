@@ -1,33 +1,43 @@
 use anyhow::Result;
-use std::{
-    fs,
+use std::fs;
+use tokio::{
     io::BufReader,
-    os::unix::net::{UnixListener, UnixStream},
-    sync::{Arc, Mutex},
+    net::{UnixListener, UnixStream},
+    signal,
+    sync::mpsc,
 };
 use tracing::log;
 
 use crate::message::{EchoCommand, EchoResponse};
 
-struct Client {
-    server_stream: Arc<Mutex<UnixStream>>,
-    response_socket_file: tempfile::NamedTempFile,
-    response_socket: UnixListener,
-    id: Arc<Mutex<Option<String>>>,
-}
+struct Client {}
 
 impl Client {
-    pub fn connect(server_socket_path: &str) -> Result<Self> {
-        log::warn!("🚀 - Starting echo client");
-        let server_stream = Arc::new(Mutex::new(UnixStream::connect(server_socket_path)?));
-        let (response_socket_file, response_socket) = Client::create_response_socket()?;
+    pub async fn new() -> Result<Self> {
+        Ok(Client {})
+    }
+    pub async fn startup(server_socket_path: &str) -> Result<()> {
+        let mut client = Client::new().await?;
+        client.run(server_socket_path).await
+    }
 
-        Ok(Client {
-            server_stream,
-            response_socket_file,
-            response_socket,
-            id: Arc::new(Mutex::new(None)),
-        })
+    pub async fn run(&mut self, server_socket_path: &str) -> Result<()> {
+        log::warn!("🚀 - Starting echo client");
+
+        let mut server_stream = UnixStream::connect(server_socket_path).await?;
+
+        let (response_socket_file, response_socket) = Client::create_response_socket()?;
+        let response_file_path = response_socket_file.as_ref().to_str().unwrap().to_string();
+        EchoCommand::Hello(response_file_path).send(&mut server_stream).await?;
+
+        tokio::select! {
+            _ = Client::handle_server_response(response_socket) => {},
+            _ = Client::handle_input(server_stream) => {},
+            _ = signal::ctrl_c() => {}
+        };
+        log::warn!("👋 - Quitting echo client");
+
+        Ok(())
     }
 
     fn create_response_socket() -> Result<(tempfile::NamedTempFile, UnixListener)> {
@@ -42,92 +52,60 @@ impl Client {
         Ok((response_socket, listener))
     }
 
-    pub fn run(&mut self) -> Result<()> {
-        self.setup_ctrlc_handler()?;
+    async fn handle_input(mut stream: UnixStream) {
+        log::info!("Starting Input Task");
 
-        self.send(EchoCommand::Hello(self.response_socket_file.as_ref().to_str().unwrap().to_string()))?;
+        let (shutdown_complete_tx, mut shutdown_complete_rx) = mpsc::channel::<String>(1);
 
-        std::thread::scope(|s| {
-            s.spawn(|| Client::handle_server_response(&mut self.response_socket, self.id.clone()));
-            s.spawn(|| Client::handle_input(self.server_stream.clone(), self.id.clone()));
+        // Spawn a thread instead of a task as it will block shutdown in ctrl+c case - https://github.com/tokio-rs/tokio/issues/2466
+        std::thread::spawn(move || {
+            log::info!("🧵 - Starting Input Read Thread");
+
+            let stdin = std::io::stdin();
+            loop {
+                let mut line = String::new();
+                stdin.read_line(&mut line).unwrap();
+                if line.is_empty() {
+                    break;
+                }
+                shutdown_complete_tx.blocking_send(line.to_owned()).unwrap();
+            }
         });
 
-        let id = Client::get_id(&self.id);
-        self.send(EchoCommand::Goodbye(id))?;
-        Ok(())
-    }
-
-    fn get_id(id: &Arc<Mutex<Option<String>>>) -> String {
-        let lock = id.lock().unwrap();
-        let id: &Option<&String> = &lock.as_ref();
-        (*id.as_ref().unwrap()).clone()
-    }
-
-    fn setup_ctrlc_handler(&self) -> Result<()> {
-        let server_stream = self.server_stream.clone();
-        let id = self.id.clone();
-        ctrlc::set_handler(move || Client::shutdown(&server_stream, &id))?;
-        Ok(())
-    }
-
-    fn send(&mut self, command: EchoCommand) -> Result<()> {
-        Client::send_to_stream(command, &self.server_stream)
-    }
-
-    fn send_to_stream(command: EchoCommand, stream: &Arc<Mutex<UnixStream>>) -> Result<()> {
-        command.send(&mut *stream.lock().unwrap())
-    }
-
-    // As we have a mutex around the stream, this should be safe
-    // As we can't mix messages on the socket
-    fn shutdown(stream: &Arc<Mutex<UnixStream>>, id: &Arc<Mutex<Option<String>>>) {
-        log::info!("👋 - Sending Goodbye");
-        let id = Client::get_id(id);
-        let _ = Client::send_to_stream(EchoCommand::Goodbye(id), stream);
-        log::warn!("💤 - Shutting Down Client");
-        // TODO - Not cleaning up temporary file
-        std::process::exit(0);
-    }
-
-    fn handle_input(stream: Arc<Mutex<UnixStream>>, id: Arc<Mutex<Option<String>>>) {
-        log::info!("⌨️ - Starting Input Thread");
-
-        let stdin = std::io::stdin();
-        let mut line = String::new();
-        loop {
-            stdin.read_line(&mut line).unwrap();
-            if line.is_empty() {
-                Client::shutdown(&stream, &id);
-                break;
-            }
-            let id = Client::get_id(&id);
-            Client::send_to_stream(EchoCommand::Message(line.to_owned(), id), &stream).unwrap();
-            line.clear();
-        }
-    }
-
-    fn handle_server_response(listener: &mut UnixListener, id: Arc<Mutex<Option<String>>>) {
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    let mut reader = BufReader::new(stream);
-                    loop {
-                        match EchoResponse::read(&mut reader).unwrap() {
-                            EchoResponse::IdAssigned(assigned_id) => {
-                                *id.lock().unwrap() = Some(assigned_id);
-                            }
-                            EchoResponse::EchoResponse(line) => {
-                                print!("> {line}");
-                            }
-                            EchoResponse::Goodbye() => {
-                                log::info!("🔌 - Response socket closed");
-                                return;
-                            }
-                        }
+        #[allow(clippy::while_let_loop)] // Loop makes task lifetime more clear
+        tokio::spawn(async move {
+            log::info!("Starting Input Send Task");
+            loop {
+                match shutdown_complete_rx.recv().await {
+                    Some(line) => {
+                        EchoCommand::Message(line).send(&mut stream).await.unwrap();
+                    }
+                    None => {
+                        // Empty string sent means EOF, closing time.
+                        break;
                     }
                 }
-                Err(e) => {
-                    log::info!("🐛 - Error in listening to server response: {e}");
+            }
+        })
+        .await
+        .unwrap();
+        log::info!("⌨️ - Ending Input Task");
+    }
+
+    async fn handle_server_response(listener: UnixListener) -> Result<()> {
+        log::info!("⌨️ - Starting Server Response Task");
+        let stream = listener.accept().await;
+        let (stream, _) = stream?;
+        let mut reader = BufReader::new(stream);
+
+        loop {
+            match EchoResponse::read(&mut reader).await? {
+                EchoResponse::EchoResponse(line) => {
+                    print!("> {line}");
+                }
+                EchoResponse::Goodbye() => {
+                    log::info!("🔌 - Response socket closed");
+                    return Ok(());
                 }
             }
         }
@@ -135,7 +113,6 @@ impl Client {
 }
 
 #[tracing::instrument]
-pub fn run_client(server_socket_path: &str) -> Result<()> {
-    let mut client = Client::connect(server_socket_path)?;
-    client.run()
+pub async fn run_client(server_socket_path: &str) -> Result<()> {
+    Client::startup(server_socket_path).await
 }

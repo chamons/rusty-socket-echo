@@ -27,12 +27,12 @@ pub struct ToolArgs {
 }
 
 #[tracing::instrument(skip(args))]
-pub fn run_tool(args: ToolArgs) -> Result<()> {
+pub async fn run_tool(args: ToolArgs) -> Result<()> {
     log::info!("Starting tool with args: '{}'", env::args().skip(1).format(" "));
     if args.server {
-        server::run_echo_server(&args.socket_path)?;
+        server::run_echo_server(&args.socket_path).await?;
     } else {
-        client::run_client(&args.socket_path)?;
+        client::run_client(&args.socket_path).await?;
     }
     log::info!("Shutting down");
     Ok(())
